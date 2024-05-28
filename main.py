@@ -47,3 +47,20 @@ def handle_content(connection, prefix, id, content, add=True):
             pipe.zrem(prefix + key, id)
     pipe.execute()
     return len(keys)
+
+def handle_content(connection, prefix, doc_id, content, add=True):
+    keys = get_index_keys(content)
+
+    pipe = connection.pipeline(False)
+
+    if add:
+        pipe.sadd(prefix + 'indexed:', doc_id)
+        for key, value in keys.items():
+            pipe.zadd(prefix + key, {doc_id: value})
+    else:
+        pipe.srem(prefix + 'indexed:', doc_id)
+        for key in keys:
+            pipe.zrem(prefix + key, doc_id)
+
+    pipe.execute()
+    return len(keys)
