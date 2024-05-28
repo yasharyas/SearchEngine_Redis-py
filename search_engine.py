@@ -64,3 +64,37 @@ def handle_content(connection, prefix, doc_id, content, add=True):
 
     pipe.execute()
     return len(keys)
+import math
+import os
+
+def search(connection, prefix, query_string, offset=0, count=10):
+    keys = [prefix + key for key in get_index_keys(query_string, False)]
+
+    if not keys:
+        return [], 0
+
+    total_docs = max(connection.scard(prefix + 'indexed:'), 1)
+
+    pipe = connection.pipeline(False)
+    for key in keys:
+        pipe.zcard(key)
+    sizes = pipe.execute()
+
+    def idf(count):
+        if not count:
+            return 0
+        return max(math.log(total_docs / count, 2), 0)
+    idfs = list(map(idf, sizes))
+
+    weights = {key: idfv for key, size, idfv in zip(keys, sizes, idfs) if size}
+
+    if not weights:
+        return [], 0
+
+    temp_key = prefix + 'temp:' + os.urandom(8).hex()
+    try:
+        known = connection.zunionstore(temp_key, weights)
+        ids = connection.zrevrange(temp_key, offset, offset + count - 1, withscores=True)
+    finally:
+        connection.delete(temp_key)
+    return ids, known
